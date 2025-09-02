@@ -1,0 +1,76 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+# --------------------------
+# 日次でSlack通知するAWSコスト連絡システム
+# --------------------------
+Parameters:
+  BillingWebhookUrl:
+    Type: String
+    Description: Slack Webhook URL for billing notification
+Resources:
+  # IAMロール
+  BillingFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: billing-function-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: "BillingFunctionPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - ce:GetCostAndUsage
+                Resource: '*'
+  # Lambda実行ロール
+  EventPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref BillingFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EventRule.Arn
+  # Lambda関数
+  BillingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: billing-function
+      Handler: index.lambda_handler
+      Role: !GetAtt BillingFunctionRole.Arn
+      Runtime: python3.8
+      Code:
+        ZipFile: |
+          import json
+
+          def lambda_handler(event, context):
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Hello from Lambda!')
+              }
+      Environment:
+        Variables:
+          # Webhook URL is set by command at deploy time.
+          SLACK_WEBHOOK_URL: !Ref BillingWebhookUrl
+      Timeout: 60
+      MemorySize: 128
+  # EventBridgeルール
+  EventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: billing-event-rule
+      ScheduleExpression: 'cron(0 0 * * ? *)' # Run the event at am 9:00 JST every day
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt BillingFunction.Arn
+          Id: billing-function-target
