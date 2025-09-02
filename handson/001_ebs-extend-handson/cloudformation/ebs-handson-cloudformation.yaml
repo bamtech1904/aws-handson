@@ -1,0 +1,191 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'EBS Volume Mount Handson'
+
+Parameters:
+  AvailabilityZone:
+    Description: Availability Zone for resources
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-1a
+
+  VpcCidr:
+    Description: CIDR block for VPC
+    Type: String
+    Default: 10.0.0.0/16
+
+  PublicSubnetCidr:
+    Description: CIDR block for public subnet
+    Type: String
+    Default: 10.0.1.0/24
+
+  AmiId:
+    Description: Amazon Linux 2023 AMI ID
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64'
+
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+
+Resources:
+  # VPC
+  EbsHandsonVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: ebs-handson-vpc
+
+  # インターネットゲートウェイ
+  EbsHandsonIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: ebs-handson-igw
+
+  # インターネットゲートウェイのアタッチメント
+  EbsHandsonIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref EbsHandsonVPC
+      InternetGatewayId: !Ref EbsHandsonIGW
+
+  # パブリックサブネット
+  EbsHandsonPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref EbsHandsonVPC
+      CidrBlock: !Ref PublicSubnetCidr
+      AvailabilityZone: !Ref AvailabilityZone
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: ebs-handson-public-subnet
+
+  # ルートテーブル
+  EbsHandsonPublicRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref EbsHandsonVPC
+      Tags:
+        - Key: Name
+          Value: ebs-handson-public-rt
+
+  # デフォルトルート
+  EbsHandsonDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: EbsHandsonIGWAttachment
+    Properties:
+      RouteTableId: !Ref EbsHandsonPublicRT
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref EbsHandsonIGW
+
+  # ルートテーブルの関連付け
+  EbsHandsonPublicRTA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref EbsHandsonPublicSubnet
+      RouteTableId: !Ref EbsHandsonPublicRT
+
+  # EC2用のIAMロール
+  EbsHandsonInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: ebs-handson-instance-role
+
+  # インスタンスプロファイル
+  EbsHandsonInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EbsHandsonInstanceRole
+
+  # セキュリティグループ
+  EbsHandsonSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: ebs-handson-sg
+      GroupDescription: Security group for EBS handson instance
+      VpcId: !Ref EbsHandsonVPC
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 0
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: ebs-handson-sg
+
+  # EC2インスタンスの修正
+  EbsHandsonInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref EbsHandsonInstanceProfile
+      SecurityGroupIds:
+        - !GetAtt EbsHandsonSG.GroupId
+      SubnetId: !Ref EbsHandsonPublicSubnet
+      AvailabilityZone: !Ref AvailabilityZone
+      # KeyName を削除
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 8
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: ebs-handson-instance
+
+  # 追加のEBSボリューム（ハンズオンで手動作成するためコメントアウト）
+  # EbsHandsonVolume:
+  #   Type: AWS::EC2::Volume
+  #   Properties:
+  #     AvailabilityZone: !Ref AvailabilityZone
+  #     Size: 8
+  #     VolumeType: gp3
+  #     Tags:
+  #       - Key: Name
+  #         Value: ebs-handson-volume
+
+  # EBSボリュームのアタッチメント（ハンズオンで手動作成するためコメントアウト）
+  # EbsHandsonVolumeAttachment:
+  #   Type: AWS::EC2::VolumeAttachment
+  #   Properties:
+  #     Device: /dev/sdf
+  #     InstanceId: !Ref EbsHandsonInstance
+  #     VolumeId: !Ref EbsHandsonVolume
+
+Outputs:
+  InstanceId:
+    Description: EC2 instance ID
+    Value: !Ref EbsHandsonInstance
+
+  InstancePublicIp:
+    Description: EC2 instance public IP address
+    Value: !GetAtt EbsHandsonInstance.PublicIp
+
+  # EbsVolumeId:
+  #   Description: EBSボリュームのID
+  #   Value: !Ref EbsHandsonVolume
