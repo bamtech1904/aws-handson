@@ -1,0 +1,479 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudFormation Template for Aurora Blue/Green Deployment Test.
+
+#=================================#
+# Metadata
+#=================================#
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Parameter Group Set
+        Parameters:
+          - Project
+          - Env
+          - AvailabilityZone1
+          - AvailabilityZone2
+          - AvailabilityZone3
+          - VPCCidrBlock
+          - PublicSubnetCidrBlock01
+          - BackSubnet1CidrBlock
+          - BackSubnet2CidrBlock
+          - BackSubnet3CidrBlock
+          - InstanceType
+          - ImageId
+          - PrivateIPAddress
+          - DBEngine1
+          - DBEngineVersion1
+          - DBUser1
+          - DBPassword1
+          - DBInstanceClass1
+
+#=================================#
+# Parameters
+#=================================#
+Parameters:
+  # General
+  Project:
+    Type: String
+    Default: aurora-bg
+  Env:
+    Type: String
+    Default: dev
+  # AvailabilityZone
+  AvailabilityZone1:
+    Description: Input AvailabilityZone Name
+    Type: "AWS::EC2::AvailabilityZone::Name"
+    Default: ap-northeast-1a
+  AvailabilityZone2:
+    Description: Input AvailabilityZone Name
+    Type: "AWS::EC2::AvailabilityZone::Name"
+    Default: ap-northeast-1d
+  AvailabilityZone3:
+    Description: Input AvailabilityZone Name
+    Type: "AWS::EC2::AvailabilityZone::Name"
+    Default: ap-northeast-1c
+  # VPC
+  VPCCidrBlock:
+    Type: String
+    Default: 192.168.0.0/16
+  # Subnet
+  PublicSubnetCidrBlock01:
+    Description: Input of CIDR
+    Type: String
+    Default: 192.168.10.0/24
+  BackSubnet1CidrBlock:
+    Description: Input CIDR on BackSubnet1
+    Type: String
+    Default: 192.168.20.0/24
+  BackSubnet2CidrBlock:
+    Description: Input CIDR on BackSubnet2
+    Type: String
+    Default: 192.168.30.0/24
+  BackSubnet3CidrBlock:
+    Description: Input CIDR on BackSubnet3
+    Type: String
+    Default: 192.168.40.0/24
+  # EC2
+  InstanceType:
+    Description: select EC2 instance type.
+    Type: String
+    Default: t3.micro
+    ConstraintDescription: must be a valid EC2 instance type.
+  ImageId:
+    Description: Latest AMI ID for Amazon Linux 2023
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+  PrivateIPAddress:
+    Description: Input of CIDR
+    Type: String
+    Default: 192.168.10.100
+  # RDS
+  DBEngine1:
+    Default: aurora-mysql
+    Type: String
+  DBEngineVersion1:
+    Default: 8.0.mysql_aurora.3.04.0
+    Description: Choose DB Engine Version
+    Type: String
+    ConstraintDescription: You must input only DB Engine Version here.
+  DBUser1:
+    Default: rdsroot
+    Description: Input DB Root User Name
+    Type: String
+  DBPassword1:
+    Default: PassW0rd
+    Description: Input DB Root User Password
+    NoEcho: "true"
+    Type: String
+  DBInstanceClass1:
+    Default: db.t3.medium
+    Description: Input DB Instance Type
+    Type: String
+
+#=================================#
+# Resources
+#=================================#
+Resources:
+  # -----------------
+  # VPC
+  # -----------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCidrBlock
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-vpc
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+
+  # -----------------
+  # Subnet
+  # -----------------
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone1
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidrBlock01
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-public-subnet-1a
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  BackSubnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone1
+      CidrBlock: !Ref BackSubnet1CidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-back-a
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+      VpcId: !Ref VPC
+  BackSubnet2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone2
+      CidrBlock: !Ref BackSubnet2CidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-back-d
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+      VpcId: !Ref VPC
+  BackSubnet3:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone3
+      CidrBlock: !Ref BackSubnet3CidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-back-c
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+      VpcId: !Ref VPC
+
+  #-----------------
+  # InternetGateway
+  #-----------------
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-igw
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  #-----------------
+  # RouteTable
+  #-----------------
+  # PublicRouteTable
+  PublicRouteTable01:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-public-rtb
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  PublicRoute01:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable01
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnetRouteTableAssociation01:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable01
+  # Back
+  BackRouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-back-rtb
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  BackRouteTableAssociation1:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref BackSubnet1
+      RouteTableId: !Ref BackRouteTable
+  BackRouteTableAssociation2:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref BackSubnet2
+      RouteTableId: !Ref BackRouteTable
+  BackRouteTableAssociation3:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref BackSubnet3
+      RouteTableId: !Ref BackRouteTable
+
+  #-----------------
+  # SecurityGroup
+  #-----------------
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${Project}-${Env}-ec2-sg
+      GroupDescription: security group for ansible manage node
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {
+            IpProtocol: icmp,
+            FromPort: -1,
+            ToPort: -1,
+            CidrIp: 0.0.0.0/0,
+            Description: all ICMP allowed,
+          }
+      SecurityGroupEgress:
+        - { IpProtocol: -1, CidrIp: 0.0.0.0/0 }
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-ansible-sg
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  DBSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Sub ${Env}-${Project}-rds
+      GroupDescription: SecurityGroup for Aurora Database
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - {
+            IpProtocol: tcp,
+            FromPort: 3306,
+            ToPort: 3306,
+            SourceSecurityGroupId: !Ref EC2SecurityGroup,
+            Description: allow from ec2 security group,
+          }
+      SecurityGroupEgress:
+        - { IpProtocol: "-1", CidrIp: 0.0.0.0/0 }
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-rds
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+
+  #-----------------
+  # EC2
+  #-----------------
+  EC2Instance01:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      Monitoring: false
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          DeleteOnTermination: true
+          PrivateIpAddress: !Ref PrivateIPAddress
+          GroupSet:
+            - !Ref EC2SecurityGroup
+          SubnetId: !Ref PublicSubnet
+      IamInstanceProfile: !Ref IAMInstanceProfile1
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          dnf -y localinstall  https://dev.mysql.com/get/mysql80-community-release-el9-1.noarch.rpm
+          dnf -y install mysql mysql-community-client
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-ec2
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+
+  # ------------------------------#
+  # IAM Role
+  # ------------------------------#
+  IAMRole1:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      RoleName: !Sub ${Project}-${Env}-ssm-role
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  IAMInstanceProfile1:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: /
+      Roles:
+        - !Ref IAMRole1
+      InstanceProfileName: !Sub ${Project}-${Env}-ssm-role
+
+  # ------------------------------#
+  # Elastic IP
+  # ------------------------------#
+  EIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref EC2Instance01
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-eip-1
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+
+  # ------------------------------#
+  # DBSubnetGroup
+  # ------------------------------#
+  DBSubnetGroup1:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: DB Subnet Group
+      DBSubnetGroupName: !Sub ${Env}-${Project}-dbnet
+      SubnetIds:
+        - !Ref BackSubnet1
+        - !Ref BackSubnet2
+        - !Ref BackSubnet3
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-dbnet
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  # ------------------------------#
+  # ClusterParameterGroup
+  # ------------------------------#
+  DBClusterParameterGroup:
+    Type: "AWS::RDS::DBClusterParameterGroup"
+    Properties:
+      DBClusterParameterGroupName: !Sub ${Env}-${Project}-cluster-pg
+      Description: Aurora Cluster Parameter Group.
+      Family: aurora-mysql8.0
+      Parameters:
+        binlog_format: MIXED
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-cluster-pg
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  # ------------------------------#
+  # Cluster
+  # ------------------------------#
+  DBCluster1:
+    Type: "AWS::RDS::DBCluster"
+    Properties:
+      DBClusterIdentifier: !Sub ${Env}-${Project}-db
+      DBClusterParameterGroupName: !Ref DBClusterParameterGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup1
+      Engine: !Ref DBEngine1
+      EngineVersion: !Ref DBEngineVersion1
+      MasterUsername: !Ref DBUser1
+      MasterUserPassword: !Ref DBPassword1
+      Port: 3306
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-db
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+      VpcSecurityGroupIds:
+        - !Ref DBSecurityGroup
+  # ------------------------------#
+  # DBInstance
+  # ------------------------------#
+  DBInstance1:
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      DBClusterIdentifier: !Ref DBCluster1
+      DBInstanceClass: !Ref DBInstanceClass1
+      DBInstanceIdentifier: !Sub ${Env}-${Project}-db01
+      Engine: !Ref DBEngine1
+      EngineVersion: !Ref DBEngineVersion1
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-db01
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  DBInstance2:
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      DBClusterIdentifier: !Ref DBCluster1
+      DBInstanceClass: !Ref DBInstanceClass1
+      DBInstanceIdentifier: !Sub ${Env}-${Project}-db02
+      Engine: !Ref DBEngine1
+      EngineVersion: !Ref DBEngineVersion1
+      Tags:
+        - Key: Name
+          Value: !Sub ${Env}-${Project}-db02
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env

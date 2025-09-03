@@ -1,0 +1,6 @@
+---
+- hosts: dev
+  roles:
+    - ping
+  # vars:
+    # ansible_sudo_pass: ijtean;A-z10

@@ -1,0 +1,2 @@
+---
+ansible_host: xx.xx.xx.xx # replace Public IP

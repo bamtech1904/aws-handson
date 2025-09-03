@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: "AWS::Serverless-2016-10-31"
+
+# ------------------------------------------------------------#
+# Metadata
+# ------------------------------------------------------------#
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Parameter Group Set
+        Parameters:
+          - ProjectName
+          - Environment
+
+# ------------------------------------------------------------#
+# Parameters
+# ------------------------------------------------------------#
+Parameters:
+  # General
+  ProjectName:
+    Description: Input Project Name
+    Type: String
+    Default: athena-fq
+  Environment:
+    Description: Input Environment[prod/stg/common]
+    Type: String
+    Default: dev
+    AllowedValues:
+      - "prod"
+      - "stg"
+      - "dev"
+  # SpillBucket
+  SpillBucketName:
+    Description: Input Spill Bucket Name.
+    Type: String
+    Default: YOUR-SPILL-BUCKET-NAME
+
+# ------------------------------------------------------------#
+#  Resources
+# ------------------------------------------------------------#
+Resources:
+  #-- S3 Bucket --#
+  SpillBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref SpillBucketName
+  #-- Athena Cloudwatch Connector (SAM Template for Serverless Application Repository) --#
+  AthenaCloudwatchConnector:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location:
+        ApplicationId: arn:aws:serverlessrepo:us-east-1:292517598671:applications/AthenaCloudwatchConnector
+        SemanticVersion: 2024.3.2
+      Parameters:
+        # This is the name of the lambda function that will be created. This name must satisfy the pattern ^[a-z0-9-_]{1,64}$
+        AthenaCatalogName: !Sub ${Environment}-${ProjectName}-cloudwatch-connector
+        #-- WARNING: If set to 'true' encryption for spilled data is disabled. Uncomment to override default value --#
+        # DisableSpillEncryption: 'false'
+        #-- (Optional) By default any data that is spilled to S3 is encrypted using AES-GCM and a randomly generated key. Setting a KMS Key ID allows your Lambda function to use KMS for key generation for a stronger source of encryption keys. Uncomment to override default value --#
+        # KMSKeyId: '' #
+        #-- Lambda memory in MB (min 128 - 3008 max). Uncomment to override default value. --#
+        # LambdaMemory: '3008'
+        #-- (Optional) A custom role to be used by the Connector lambda. # Uncomment to override default value --#
+        # LambdaRole: ''
+        #-- Maximum Lambda invocation runtime in seconds. (min 1 - 900 max) Uncomment to override default value --#
+        # LambdaTimeout: '900'
+        #-- (Optional) An IAM policy ARN to use as the PermissionsBoundary for the created Lambda function's execution role. Uncomment to override default value --#
+        # PermissionsBoundaryARN: ''
+        #-- The name of the bucket where this function can spill data. --#
+        SpillBucket: !Ref SpillBucket
+        #-- The prefix within SpillBucket where this function can spill data. --#
+        # SpillPrefix: 'athena-spill' # Uncomment to override default value
+  #-- Athena Data Catalog --#
+  DataCatalog:
+    Type: AWS::Athena::DataCatalog
+    DependsOn:
+      - AthenaCloudwatchConnector
+    Properties:
+      Name: !Sub ${Environment}-${ProjectName}-cloudwatch-connector
+      Description: "Athena Data Catalog for cloudwatch connector."
+      Type: LAMBDA
+      Parameters:
+        catalog: cloudwatchlogs
+        metadata-function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:cloudwatchlogs
+        record-function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:cloudwatchlogs
+      Tags:
+        - Key: Name
+          Value: !Sub ${Environment}-${ProjectName}-cloudwatch-connector
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment

@@ -1,0 +1,310 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudFormation Template for Aurora Blue/Green Deployment Test.
+
+#=================================#
+# Metadata
+#=================================#
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Parameter Group Set
+        Parameters:
+          - Project
+          - Env
+          - AvailabilityZoneName1
+          - AvailabilityZoneName2
+          - VPCCidrBlock
+          - PublicSubnetCidrBlock01
+          - InstanceType
+          - ImageId
+          - PrivateIPAddress01
+          - PrivateIPAddress02
+
+#=================================#
+# Parameters
+#=================================#
+Parameters:
+  # General
+  Project:
+    Type: String
+    Default: ansible
+  Env:
+    Type: String
+    Default: dev
+  # AvailabilityZone
+  AvailabilityZoneName1:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-1a
+  AvailabilityZoneName2:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-1c
+  # VPC
+  VPCCidrBlock:
+    Type: String
+    Default: 192.168.0.0/16
+  # Subnet
+  PublicSubnetCidrBlock01:
+    Description: Input of CIDR
+    Type: String
+    Default: 192.168.10.0/24
+  # EC2
+  InstanceType:
+    Description: select EC2 instance type.
+    Type: String
+    Default: t3.micro
+    ConstraintDescription: must be a valid EC2 instance type.
+  ImageId:
+    Description: Latest AMI ID for Amazon Linux 2023
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+  PrivateIPAddress01:
+    Description: Input of CIDR
+    Type: String
+    Default: 192.168.10.100
+  PrivateIPAddress02:
+    Description: Input of CIDR
+    Type: String
+    Default: 192.168.10.200
+
+#=================================#
+# Resources
+#=================================#
+Resources:
+  # -----------------
+  # VPC
+  # -----------------
+  VPC01:
+    Type: AWS::EC2::VPC
+    Properties:
+      # CIDR
+      CidrBlock: !Ref VPCCidrBlock
+      # DNSホスト名
+      EnableDnsHostnames: true
+      # DNS解決
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-vpc
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+
+  # -----------------
+  # Subnet
+  # -----------------
+  PublicSubnet01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZoneName1
+      VpcId: !Ref VPC01
+      CidrBlock: !Ref PublicSubnetCidrBlock01
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-public-subnet-1a
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+
+  #-----------------
+  # InternetGateway
+  #-----------------
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-igw
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  # Attach to VPC
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC01
+      InternetGatewayId: !Ref InternetGateway
+
+  #-----------------
+  # RouteTable
+  #-----------------
+  # PublicRouteTable
+  PublicRouteTable01:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC01
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-public-rtb
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  PublicRoute01:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable01
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnetRouteTableAssociation01:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet01
+      RouteTableId: !Ref PublicRouteTable01
+
+  #-----------------
+  # SecurityGroup
+  #-----------------
+  SecurityGroup01:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${Project}-${Env}-ansible-sg
+      GroupDescription: security group for ansible manage node
+      VpcId: !Ref VPC01
+      SecurityGroupIngress:
+        - {
+            IpProtocol: icmp,
+            FromPort: -1,
+            ToPort: -1,
+            CidrIp: 0.0.0.0/0,
+            Description: all ICMP allowed,
+          }
+        - {
+            IpProtocol: tcp,
+            FromPort: 22,
+            ToPort: 22,
+            CidrIp: 0.0.0.0/0,
+            Description: All ssh access allowed,
+          }
+      SecurityGroupEgress:
+        - { IpProtocol: -1, CidrIp: 0.0.0.0/0 }
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-ansible-sg
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+
+  #-----------------
+  # KeyPair
+  #-----------------
+  KeyPair01:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: !Sub ${Project}-${Env}-ansible-key
+      KeyType: rsa
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-ansible-key
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+
+  #-----------------
+  # EC2
+  #-----------------
+  EC2Instance01:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      Monitoring: false
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          DeleteOnTermination: true
+          PrivateIpAddress: !Ref PrivateIPAddress01
+          GroupSet:
+            - !Ref SecurityGroup01
+          SubnetId: !Ref PublicSubnet01
+      KeyName: !Ref KeyPair01
+      IamInstanceProfile: !Ref IAMInstanceProfile1
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-ansible-sv01
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  EC2Instance02:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      Monitoring: false
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          DeleteOnTermination: true
+          PrivateIpAddress: !Ref PrivateIPAddress02
+          GroupSet:
+            - !Ref SecurityGroup01
+          SubnetId: !Ref PublicSubnet01
+      KeyName: !Ref KeyPair01
+      IamInstanceProfile: !Ref IAMInstanceProfile1
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-ansible-sv02
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+
+  # ------------------------------#
+  # IAM Role
+  # ------------------------------#
+  IAMRole1:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      RoleName: !Sub ${Project}-${Env}-ssm-role
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  IAMInstanceProfile1:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: /
+      Roles:
+        - !Ref IAMRole1
+      InstanceProfileName: !Sub ${Project}-${Env}-ssm-role
+
+  # ------------------------------#
+  # Elastic IP
+  # ------------------------------#
+  EIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref EC2Instance01
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-eip-1
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  EIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref EC2Instance02
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-eip-2
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
