@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "DemoGo-ECS200 - Container CloudFormation Template"
+# ------------------------------------- #
+# Metadata
+# ------------------------------------- #
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Parameter Group Set
+        Parameters:
+          - Project
+          - Env
+# ------------------------------------- #
+# Parameters
+# ------------------------------------- #
+Parameters:
+  # General
+  Project:
+    Type: String
+    Default: demogo
+  Env:
+    Type: String
+    Default: dev
+
+# ------------------------------------- #
+# Resources
+# ------------------------------------- #
+Resources:
+  # ------------------------------
+  # Elastic Container Registry (ECR)
+  # ------------------------------
+  Repository01:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: cats
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      ImageScanningConfiguration:
+        ScanOnPush: false
+      ImageTagMutability: MUTABLE
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-repo
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  Repository02:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: dogs
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      ImageScanningConfiguration:
+        ScanOnPush: false
+      ImageTagMutability: MUTABLE
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-repo
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env

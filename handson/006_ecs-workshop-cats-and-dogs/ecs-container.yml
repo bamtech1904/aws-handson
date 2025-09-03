@@ -1,0 +1,560 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "DemoGo-ECS200 - Container CloudFormation Template"
+# ------------------------------------- #
+# Metadata
+# ------------------------------------- #
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Parameter Group Set
+        Parameters:
+          - Project
+          - Env
+# ------------------------------------- #
+# Parameters
+# ------------------------------------- #
+Parameters:
+  # General
+  Project:
+    Type: String
+    Default: demogo
+  Env:
+    Type: String
+    Default: dev
+  # AMI
+  LatestECSOptimizedAMI:
+    Description: "AMI ID"
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: "/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id"
+
+# ------------------------------------- #
+# Resources
+# ------------------------------------- #
+Resources:
+  # ------------------------------
+  # Elastic Container Service (ECS)
+  # ------------------------------
+  #-- Cluster --#
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${Project}-${Env}-cluster
+      ClusterSettings:
+        - Name: "containerInsights"
+          Value: "enabled"
+      Configuration:
+        ExecuteCommandConfiguration:
+          Logging: "DEFAULT"
+      ServiceConnectDefaults:
+        Namespace: "DEMOGO-ECS"
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-cluster
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  #-- Capacity Provider --#
+  EC2CapacityProvider:
+    Type: AWS::ECS::CapacityProvider
+    Properties:
+      Name: !Sub ${Project}-${Env}-capacity-provider
+      AutoScalingGroupProvider:
+        AutoScalingGroupArn: !Ref AutoScalingGroup1
+        ManagedScaling:
+          Status: DISABLED
+        ManagedTerminationProtection: DISABLED
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-capacity-provider
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  #-- Cluster Capacity Provider Association --#
+  ClusterCapacityProviderAssociation01:
+    Type: AWS::ECS::ClusterCapacityProviderAssociations
+    DependsOn: "ECSCluster"
+    Properties:
+      Cluster: !Ref ECSCluster
+      CapacityProviders:
+        - !Ref EC2CapacityProvider
+      DefaultCapacityProviderStrategy:
+        - Base: 0
+          Weight: 1
+          CapacityProvider: !Ref EC2CapacityProvider
+  #-- Launch Template --#
+  LaunchTemplate1:
+    Type: AWS::EC2::LaunchTemplate
+    DependsOn: "ECSCluster"
+    Properties:
+      LaunchTemplateName: !Sub ${Project}-${Env}-launch-template
+      LaunchTemplateData:
+        IamInstanceProfile:
+          # import from IAM ServerRole template
+          Arn: !GetAtt InstanceProfile1.Arn
+        # EBS Volume
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 30
+              VolumeType: gp3
+        ImageId: !Ref LatestECSOptimizedAMI
+        InstanceType: m5d.large
+        KeyName: !Ref KeyPair1
+        EbsOptimized: true
+        # Cloudwatchの詳細モニタリングを無効に設定
+        Monitoring:
+          Enabled: false
+        SecurityGroupIds:
+          # import from SecurityGroup template
+          - !ImportValue ECSInstanceSG
+        UserData:
+          Fn::Base64:
+            Fn::Sub:
+              - "#!/bin/bash \necho ECS_CLUSTER=${ClusterName} >> /etc/ecs/ecs.config;"
+              - ClusterName:
+                  Ref: "ECSCluster"
+  #-- Auto Scaling Group --#
+  AutoScalingGroup1:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    DependsOn: "ECSCluster"
+    Properties:
+      AutoScalingGroupName: !Sub ${Project}-${Env}-ecs-cluster-asg
+      # Launch Configuration
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate1
+        Version: !GetAtt LaunchTemplate1.LatestVersionNumber
+      VPCZoneIdentifier:
+        - !ImportValue PrivateSubnet1
+        - !ImportValue PrivateSubnet2
+      # 台数設定
+      MinSize: 2
+      MaxSize: 4
+      DesiredCapacity: 2
+      Cooldown: 10
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-ecs-cluster-asg
+          PropagateAtLaunch: true
+        - Key: Project
+          Value: !Ref Project
+          PropagateAtLaunch: true
+        - Key: Env
+          Value: !Ref Env
+          PropagateAtLaunch: true
+  #-- Instance Profile --#
+  InstanceRole1:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub ${Project}-${Env}-instance-profile
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-instance-profile
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  InstanceProfile1:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      InstanceProfileName: !Ref InstanceRole1
+      Path: /
+      Roles:
+        - !Ref InstanceRole1
+  #-- Key Pair --#
+  KeyPair1:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: !Sub ${Project}-${Env}-key
+      KeyType: rsa
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-key
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  #-- ECS Task Definition --#
+  ECSTaskDefinition01:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: web
+      RequiresCompatibilities:
+        - "EC2"
+      ContainerDefinitions:
+        - Name: web
+          Image: "038445823716.dkr.ecr.ap-northeast-2.amazonaws.com/web:latest"
+          Memory: 128
+          PortMappings:
+            - ContainerPort: 80
+          Essential: true
+  ECSTaskDefinition02:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: catsdef
+      RequiresCompatibilities:
+        - "EC2"
+      ContainerDefinitions:
+        - Name: log_router
+          Image: "906394416424.dkr.ecr.ap-northeast-2.amazonaws.com/aws-for-fluent-bit:latest"
+          MemoryReservation: 50
+          FirelensConfiguration:
+            Type: fluentbit
+        - Name: cats
+          Image: "996245638516.dkr.ecr.ap-northeast-1.amazonaws.com/cats:latest"
+          Memory: 128
+          PortMappings:
+            - ContainerPort: 80
+          LogConfiguration:
+            LogDriver: awsfirelens
+            Options:
+              log_group_name: "ecs-demogo-log"
+              auto_create_group: "true"
+              log_stream_prefix: "from-fluent-bit"
+              region: "ap-northeast-1"
+              Name: "cloudwatch"
+  ECSTaskDefinition03:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: dogsdef
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - "FARGATE"
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: dogs
+          Image: "996245638516.dkr.ecr.ap-northeast-1.amazonaws.com/dogs:latest"
+          Cpu: 256
+          Memory: 512
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+              Protocol: tcp
+          Essential: true
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-create-group: "true"
+              awslogs-group: "/ecs/dogsdef"
+              awslogs-region: "ap-northeast-1"
+              awslogs-stream-prefix: "ecs"
+  #-- ECS Task Execution Role --#
+  ECSTaskExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub ${Project}-${Env}-ecs-task-execution-role
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-ecs-task-execution-role
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  #-- Application Load Balancer --#
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${Project}-${Env}-alb
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      Subnets:
+        - !ImportValue PublicSubnet1
+        - !ImportValue PublicSubnet2
+      SecurityGroups:
+        - !ImportValue ALBSG
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-alb
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  Listener01:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup01
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+  ListenerRule01:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup02
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /cats*
+      ListenerArn: !Ref Listener01
+      Priority: 1
+  ListenerRule02:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup03
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /dogs*
+      ListenerArn: !Ref Listener01
+      Priority: 2
+  TargetGroup01:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      TargetType: instance
+      Name: web
+      Protocol: HTTP
+      Port: 80
+      VpcId: !ImportValue VPC
+      ProtocolVersion: HTTP1
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 10
+      HealthCheckIntervalSeconds: 30
+      IpAddressType: ipv4
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-tg-01
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  TargetGroup02:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      TargetType: instance
+      Name: cats
+      Protocol: HTTP
+      Port: 80
+      VpcId: !ImportValue VPC
+      ProtocolVersion: HTTP1
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /cats/
+      HealthCheckPort: traffic-port
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 10
+      HealthCheckIntervalSeconds: 30
+      IpAddressType: ipv4
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-tg02
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+  TargetGroup03:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      TargetType: ip
+      Name: dogs
+      Protocol: HTTP
+      Port: 80
+      VpcId: !ImportValue VPC
+      ProtocolVersion: HTTP1
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /dogs/
+      HealthCheckPort: traffic-port
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 10
+      HealthCheckIntervalSeconds: 30
+      IpAddressType: ipv4
+      Tags:
+        - Key: Name
+          Value: !Sub ${Project}-${Env}-tg03
+        - Key: Project
+          Value: !Ref Project
+        - Key: Env
+          Value: !Ref Env
+
+  #-- ECS Service --#
+  # Please comment in the following resources after creating the above resources
+  # because the ECS Deployment Circuit Breaker may triggerr and fail to create
+  # ECSService01:
+  #   Type: AWS::ECS::Service
+  #   Properties:
+  #     Cluster: !Ref ECSCluster
+  #     ServiceName: web
+  #     LoadBalancers:
+  #       - ContainerName: web
+  #         ContainerPort: 80
+  #         TargetGroupArn: !Ref TargetGroup01
+  #     DesiredCount: 2
+  #     LaunchType: EC2
+  #     TaskDefinition: !Ref ECSTaskDefinition01
+  #     DeploymentConfiguration:
+  #       DeploymentCircuitBreaker:
+  #         Enable: true
+  #         Rollback: true
+  #       MaximumPercent: 200
+  #       MinimumHealthyPercent: 100
+  #     # Role: !GetAtt ECSServiceLinkRole.Arn
+  #     PlacementStrategies:
+  #       - Field: "instanceId"
+  #         Type: "spread"
+  #       - Field: "attribute:ecs.availability-zone"
+  #         Type: "spread"
+  #     HealthCheckGracePeriodSeconds: 0
+  #     SchedulingStrategy: REPLICA
+  #     DeploymentController:
+  #       Type: ECS
+  #     EnableECSManagedTags: true
+  # ECSService02:
+  #   Type: AWS::ECS::Service
+  #   Properties:
+  #     Cluster: !Ref ECSCluster
+  #     ServiceName: cats
+  #     LoadBalancers:
+  #       - ContainerName: cats
+  #         ContainerPort: 80
+  #         TargetGroupArn: !Ref TargetGroup02
+  #     DesiredCount: 2
+  #     LaunchType: EC2
+  #     TaskDefinition: !Ref ECSTaskDefinition02
+  #     DeploymentConfiguration:
+  #       DeploymentCircuitBreaker:
+  #         Enable: false
+  #         Rollback: false
+  #       MaximumPercent: 200
+  #       MinimumHealthyPercent: 100
+  #     # Role: !GetAtt ECSServiceLinkRole.Arn
+  #     PlacementStrategies:
+  #       - Field: "instanceId"
+  #         Type: "spread"
+  #       - Field: "attribute:ecs.availability-zone"
+  #         Type: "spread"
+  #     HealthCheckGracePeriodSeconds: 0
+  #     SchedulingStrategy: REPLICA
+  #     DeploymentController:
+  #       Type: ECS
+  #     EnableECSManagedTags: true
+  # ECSService03:
+  #   Type: AWS::ECS::Service
+  #   Properties:
+  #     Cluster: !Ref ECSCluster
+  #     ServiceName: dogs
+  #     LoadBalancers:
+  #       - ContainerName: dogs
+  #         ContainerPort: 80
+  #         TargetGroupArn: !Ref TargetGroup03
+  #     DesiredCount: 2
+  #     LaunchType: FARGATE
+  #     TaskDefinition: !Ref ECSTaskDefinition03
+  #     DeploymentConfiguration:
+  #       DeploymentCircuitBreaker:
+  #         Enable: true
+  #         Rollback: true
+  #       MaximumPercent: 200
+  #       MinimumHealthyPercent: 100
+  #     # Role: !GetAtt ECSServiceLinkRole.Arn
+  #     NetworkConfiguration:
+  #       AwsvpcConfiguration:
+  #         AssignPublicIp: DISABLED
+  #         SecurityGroups:
+  #           - !ImportValue ECSInstanceSG
+  #         Subnets:
+  #           - !ImportValue PrivateSubnet1
+  #           - !ImportValue PrivateSubnet2
+  #     HealthCheckGracePeriodSeconds: 0
+  #     SchedulingStrategy: REPLICA
+  #     DeploymentController:
+  #       Type: ECS
+  #     EnableECSManagedTags: true
+
+  # #-- ECS Service Link Role --#
+  # # Please comment out if already created
+  # ECSServiceLinkRole:
+  #   Type: AWS::IAM::ServiceLinkedRole
+  #   Properties:
+  #     AWSServiceName: ecs.amazonaws.com
+  #     Description: "Amazon ECS Service Link Role."
+
+  # #-- Application Auto Scaling --#
+  # ApplicationAutoScalingTarget01:
+  #   Type: AWS::ApplicationAutoScaling::ScalableTarget
+  #   Properties:
+  #     ServiceNamespace: ecs
+  #     ResourceId: !Sub "service/${ECSCluster}/web"
+  #     ScalableDimension: ecs:service:DesiredCount
+  #     MinCapacity: 2
+  #     MaxCapacity: 8
+  #     RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService"
+  #     SuspendedState:
+  #       DynamicScalingInSuspended: false
+  #       DynamicScalingOutSuspended: false
+  #       ScheduledScalingSuspended: false
+  # ApplicationAutoScalingPolicy01:
+  #   Type: AWS::ApplicationAutoScaling::ScalingPolicy
+  #   Properties:
+  #     PolicyName: ALB-request-tracking
+  #     ScalingTargetId: !Ref ApplicationAutoScalingTarget01
+  #     PolicyType: TargetTrackingScaling
+  #     TargetTrackingScalingPolicyConfiguration:
+  #       TargetValue: 4000
+  #       PredefinedMetricSpecification:
+  #         PredefinedMetricType: ALBRequestCountPerTarget
+  #         ResourceLabel: !Sub "${ApplicationLoadBalancer.LoadBalancerFullName}/${TargetGroup01.TargetGroupFullName}"
+  #       ScaleOutCooldown: 10
+  #       DisableScaleIn: false
+  # #-- Application AutoScaling Service Link Role --#
+  # # Please comment out if already created
+  # AppAutoScalingServiceLinkRole:
+  #   Type: AWS::IAM::ServiceLinkedRole
+  #   Properties:
+  #     AWSServiceName: ecs.application-autoscaling.amazonaws.com
+  #     Description: "Amazon Application AutoScaling Service Link Role."
+
+  # # ASG Dynamic Scaling Policy
+  # AutoScalingDynamicPolicy01:
+  #   Type: "AWS::AutoScaling::ScalingPolicy"
+  #   Properties:
+  #     AutoScalingGroupName: !Ref AutoScalingGroup1
+  #     PolicyType: TargetTrackingScaling
+  #     EstimatedInstanceWarmup: 10
+  #     TargetTrackingConfiguration:
+  #       PredefinedMetricSpecification:
+  #         PredefinedMetricType: ASGAverageNetworkIn
+  #       TargetValue: 5000
+  #       DisableScaleIn: false
+
+Outputs:
+  ECSCluster:
+    Description: "The created cluster."
+    Value:
+      Ref: "ECSCluster"
