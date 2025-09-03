@@ -1,10 +1,10 @@
 # RDSのBlue/Green Deploymentをやってみた
 
 ---
+# 動画
 [![【AWSハンズオン】RDSのBlue/Green Deploymentをやってみた](https://img.youtube.com/vi/bwQGNnqY8X4/maxresdefault.jpg)](https://www.youtube.com/watch?v=bwQGNnqY8X4)
 
-
-
+# 概要
 ![nw-diag](./diagram.drawio.svg)
 
 本フォルダーは`RDSのBlue/Green Deploymentをやってみた`で使用する資料です。
