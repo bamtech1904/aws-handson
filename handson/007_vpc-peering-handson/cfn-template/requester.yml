@@ -1,0 +1,287 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudFormation Template Requester
+#=================================#
+# Parameters
+#=================================#
+Parameters: 
+#-----------------
+# VPC
+#-----------------
+  # VPC
+  VPCName:
+    Type: String
+    Default: requester-vpc
+  VPCCidrBlock:
+    Type: String
+    Default: 10.1.0.0/20
+  # PublicSubnet1
+  PublicSubnetName01:
+    Description: Input of Subnet Name
+    Type: String
+    Default: requester-public-sub
+  PublicSubnetCidrBlock01:
+    Description: Input of CIDR
+    Type: String
+    Default: 10.1.1.0/24
+  # PrivateSubnet1
+  PrivateSubnetName01:
+    Description: Input of Subnet Name
+    Type: String
+    Default: requester-private-sub
+  PrivateSubnetCidrBlock01:
+    Description: Input of CIDR
+    Type: String
+    Default: 10.1.8.0/24
+  # AvailabilityZone
+  AvailabilityZone:
+    Description: Input AvailabilityZone Name
+    Type: 'AWS::EC2::AvailabilityZone::Name'
+    Default: ap-northeast-3a
+  # InternetGateway
+  InternetGatewayName:
+    Description: Input of InternetGateway Name
+    Type: String
+    Default: requester-igw
+  # RouteTable
+  PublicRouteTableName01:
+    Description: Input of Subnet Name
+    Type: String
+    Default: requester-public-rtb
+  PrivateRouteTableName01:
+    Description: Input of Subnet Name
+    Type: String
+    Default: requester-private-rtb
+  # NatGateway
+  NatGatewayName:
+    Description: Name Input of NatGateway1
+    Type: String
+    Default: requester-ngw
+  # EIP
+  EIPName:
+    Type: String
+    Default: requester-eip
+  # VPC Peering Connection ID
+  PeeringConnectionId:
+    Type: String
+    Default: Please Enter Peering Connection Id
+#-----------------
+# EC2
+#-----------------
+  # SecurityGroup
+  SecurityGroupName:
+    Type: String
+    Default: requester-ec2-sg
+  # EC2 Instance
+  InstanceName:
+    Description: enter instance name.
+    Type: String
+    Default: requester-ec2
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+  InstanceType:
+    Description: select EC2 instance type.
+    Type: String
+    Default: t2.micro
+  PrimaryIPAddress:
+    Description: EC2 Primaty IP.
+    Type: String
+    Default: 10.1.8.100
+#-----------------
+# IAM
+#-----------------
+  ServerRoleName01:
+    Description: Please enter ServerRoleName01 name
+    Type: String
+    Default: requester-role
+
+#=================================#
+# Resources
+#=================================#
+Resources:
+# -----------------
+# VPC Resources
+# -----------------
+# VPC
+  RequesterVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCidrBlock
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Ref VPCName
+# Subnet
+  PublicSubnet01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      VpcId: !Ref RequesterVPC
+      CidrBlock: !Ref PublicSubnetCidrBlock01
+      Tags:
+        - Key: Name
+          Value: !Ref PublicSubnetName01
+  PrivateSubnet01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      VpcId: !Ref RequesterVPC
+      CidrBlock: !Ref PrivateSubnetCidrBlock01
+      Tags:
+        - Key: Name
+          Value: !Ref PrivateSubnetName01
+  # InternetGateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref InternetGatewayName
+  # Attach to VPC
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref RequesterVPC
+      InternetGatewayId: !Ref InternetGateway
+
+#-----------------
+# RouteTable
+#-----------------
+  # PublicRouteTable
+  PublicRouteTable01:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref RequesterVPC
+      Tags:
+        - Key: Name
+          Value: !Ref PublicRouteTableName01
+  PublicRoute01:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable01
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnetRouteTableAssociation01:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet01
+      RouteTableId: !Ref PublicRouteTable01
+  # PrivateRouteTable
+  PrivateRouteTable01:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref RequesterVPC
+      Tags:
+        - Key: Name
+          Value: !Ref PrivateRouteTableName01
+  PrivateRoute01:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable01
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NAT1
+  ## vpc-peering is required to use the following route.
+  # PrivateRoute02:
+  #   Type: AWS::EC2::Route
+  #   Properties:
+  #     RouteTableId: !Ref PrivateRouteTable01
+  #     DestinationCidrBlock: 10.2.8.0/24
+  #     VpcPeeringConnectionId: !Ref PeeringConnectionId
+  # PrivateSubnetRouteTableAssociation01:
+  #   Type: AWS::EC2::SubnetRouteTableAssociation
+  #   Properties:
+  #     SubnetId: !Ref PrivateSubnet01
+  #     RouteTableId: !Ref PrivateRouteTable01
+
+# ------------------------------#
+# NatGateway
+# ------------------------------#
+  NAT1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - EIP1
+        - AllocationId
+      SubnetId: !Ref PublicSubnet01
+      Tags:
+        - Key: Name
+          Value: !Ref NatGatewayName
+
+# ------------------------------#
+# EIP
+# ------------------------------#
+  EIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Ref EIPName
+
+# -----------------
+# EC2
+# -----------------
+  # Security Group
+  SecurityGroup01:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Ref SecurityGroupName
+      GroupDescription: Security Group for EC2
+      VpcId:  !Ref RequesterVPC
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 0.0.0.0/0, Description: All ssh access allowed}
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: All https access allowed}
+        - { IpProtocol: icmp, FromPort: -1, ToPort: -1, CidrIp: 0.0.0.0/0, Description: All icmp access allowed}
+      SecurityGroupEgress:
+        - { IpProtocol: -1, CidrIp: 0.0.0.0/0}
+      Tags:
+        - Key: Name
+          Value: !Ref SecurityGroupName
+  # EC2 Instance
+  EC2Instance01:
+    Type: AWS::EC2::Instance
+    Properties:
+      IamInstanceProfile: !Ref IAMServerProfile
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      Monitoring: false
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "false"
+          DeviceIndex: "0"
+          DeleteOnTermination: true
+          PrivateIpAddress: !Ref PrimaryIPAddress
+          SubnetId: !Ref PrivateSubnet01
+          GroupSet:
+            - !Ref SecurityGroup01
+      Tags:
+        - Key: Name
+          Value: !Ref InstanceName
+
+# -----------------
+# IAM
+# -----------------
+  # IAM Role
+  ServerRole1:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      RoleName: !Ref ServerRoleName01
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  IAMServerProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref ServerRole1
+      InstanceProfileName: !Ref ServerRoleName01

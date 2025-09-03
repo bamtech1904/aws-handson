@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Cross Account VPC Peering Connection
+#=================================#
+# Parameters
+#=================================#
+Parameters:
+  RequesterVPCId:
+    Type: String
+    Description: Please Enter Requester VPC ID
+    Default: xxxxxx
+  AccepterVPCId:
+    Type: String
+    Description: Please Enter Accepter VPC ID
+    Default: xxxxxx
+  AccepterAccountId:
+    Type: String
+    Description: Please Enter Accepter Accepter Account
+    Default: xxxxxx
+  PeeringRoleArn:
+    Type: String
+    Description: Please Enter Peering IAM Role ARN
+    Default: xxxxxx
+#=================================#
+# Resources
+#=================================#
+Resources: 
+  VPCPeeringConnection: 
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties: 
+      VpcId: !Ref RequesterVPCId
+      PeerVpcId: !Ref AccepterVPCId
+      PeerOwnerId: !Ref AccepterAccountId
+      PeerRoleArn: !Ref PeeringRoleArn

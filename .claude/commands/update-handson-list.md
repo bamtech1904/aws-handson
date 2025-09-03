@@ -22,8 +22,9 @@ Update the handson list table in README.md by:
    - Removing numeric prefix and underscore (e.g., `001_` → ``)
    - Removing `-handson` suffix
    - Removing `-notification` suffix
-   - Converting to uppercase
-   - Special cases: directories containing "ebs" → "EBS", "billing" → "Billing"
+   - Converting to title case (first letter uppercase, rest lowercase)
+   - Special cases for acronyms: "ebs" → "EBS", "ec2" → "EC2", "ecs" → "ECS", "vpc" → "VPC", "rds" → "RDS"
+   - Special cases for other terms: "billing" → "Billing"
 4. Replace the existing table in README.md (from "## ハンズオン一覧" section) with a new table containing:
    - Service name
    - Title from README.md
@@ -40,7 +41,12 @@ The table should use this header:
 - Removes numeric prefix and underscore (e.g., `001_` → ``)
 - Removes `-handson` suffix
 - Removes `-notification` suffix  
-- Converts to uppercase
-- Special cases:
+- Converts to title case (first letter uppercase, rest lowercase)
+- Special cases for acronyms/abbreviations:
   - Directory names containing "ebs" → "EBS"
+  - Directory names containing "ec2" → "EC2"
+  - Directory names containing "ecs" → "ECS"
+  - Directory names containing "vpc" → "VPC"
+  - Directory names containing "rds" → "RDS"
+- Special cases for other terms:
   - Directory names containing "billing" → "Billing"
