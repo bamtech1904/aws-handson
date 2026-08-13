@@ -1,0 +1,95 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS MCP Server x Claude Code IAM Guardrail Handson'
+
+Parameters:
+  IamUserName:
+    Description: OAuthサインインでClaude Codeから使うIAMユーザー名
+    Type: String
+    Default: aws-mcp-handson-user
+
+  ConsolePassword:
+    Description: AWSマネジメントコンソールへのサインイン用パスワード（OAuth認証のブラウザサインイン画面で使用）
+    Type: String
+    NoEcho: true
+    MinLength: 8
+
+Resources:
+  # ハンズオン用IAMユーザー
+  AwsMcpHandsonUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Ref IamUserName
+      LoginProfile:
+        Password: !Ref ConsolePassword
+        PasswordResetRequired: false
+      Tags:
+        - Key: Name
+          Value: aws-mcp-handson-user
+
+  # ハンズオン③（AWS環境の読み取り・書き込み操作）に必要な最小権限
+  AwsMcpHandsonBasePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: aws-mcp-handson-base-policy
+      Users:
+        - !Ref AwsMcpHandsonUser
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowRegionCheck
+            Effect: Allow
+            Action:
+              - ec2:DescribeRegions
+            Resource: '*'
+          - Sid: AllowS3HandsOn
+            Effect: Allow
+            Action:
+              - s3:ListAllMyBuckets
+              - s3:GetBucketLocation
+              - s3:ListBucket
+              - s3:CreateBucket
+              - s3:DeleteBucket
+              - s3:DeleteObject
+            Resource: '*'
+
+  # OAuthサインイン許可ポリシー（ハンズオン①で`aws iam attach-user-policy`を使って手動アタッチするためコメントアウト）
+  # AwsMcpHandsonOAuthPolicyAttachment:
+  #   Type: AWS::IAM::Policy
+  #   Properties:
+  #     Users:
+  #       - !Ref AwsMcpHandsonUser
+  #     # 実際にはマネージドポリシーarn:aws:iam::aws:policy/AWSMCPSignInOAuthAccessPolicyを
+  #     # attach-user-policyコマンドでアタッチする
+
+  # ガードレールDenyポリシー（ハンズオン④で`aws iam put-user-policy`を使って手動アタッチするためコメントアウト）
+  # AwsMcpHandsonGuardrailPolicy:
+  #   Type: AWS::IAM::Policy
+  #   Properties:
+  #     PolicyName: DenyMCPDelete
+  #     Users:
+  #       - !Ref AwsMcpHandsonUser
+  #     PolicyDocument:
+  #       Version: '2012-10-17'
+  #       Statement:
+  #         - Effect: Deny
+  #           Action:
+  #             - s3:DeleteBucket
+  #             - s3:DeleteObject
+  #           Resource: '*'
+  #           Condition:
+  #             Bool:
+  #               aws:ViaAWSMCPService: 'true'
+
+Outputs:
+  IamUserName:
+    Description: ハンズオン用IAMユーザー名
+    Value: !Ref AwsMcpHandsonUser
+
+  IamUserArn:
+    Description: ハンズオン用IAMユーザーのARN
+    Value: !GetAtt AwsMcpHandsonUser.Arn
+
+  ConsoleSignInUrl:
+    Description: AWSマネジメントコンソールのサインインURL（OAuth認証のブラウザサインインで使用）
+    Value: !Sub 'https://${AWS::AccountId}.signin.aws.amazon.com/console'
