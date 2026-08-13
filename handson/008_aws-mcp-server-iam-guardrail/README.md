@@ -5,9 +5,19 @@
 
 AWS公式のマネージドMCP Server（GA版）をClaude Codeに接続し、自然言語でAWS環境を操作したうえで、IAMの条件キー`aws:ViaAWSMCPService`を使ってAIエージェント経由の操作だけを制限する手順を扱います。
 
-# ワンクリックでスタック作成
+# テンプレートの入手
 
-[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=ap-northeast-1#/stacks/new?stackName=aws-mcp-handson&templateURL=https%3A%2F%2Fraw.githubusercontent.com%2Fbamtech1904%2Faws-handson%2Fmain%2Fhandson%2F008_aws-mcp-server-iam-guardrail%2Faws-mcp-handson-cloudformation.yaml)
+以下いずれかの方法でテンプレートファイル（`aws-mcp-handson-cloudformation.yaml`）を入手してください。
+
+**方法1: curlでダウンロード**
+```bash
+curl -o aws-mcp-handson-cloudformation.yaml \
+  https://raw.githubusercontent.com/bamtech1904/aws-handson/main/handson/008_aws-mcp-server-iam-guardrail/aws-mcp-handson-cloudformation.yaml
+```
+
+**方法2: リポジトリをZIPダウンロード**
+
+[GitHubリポジトリ](https://github.com/bamtech1904/aws-handson)の「Code」→「Download ZIP」から取得し、`handson/008_aws-mcp-server-iam-guardrail/aws-mcp-handson-cloudformation.yaml`を使用してください。
 
 # このテンプレートで作成されるもの
 
