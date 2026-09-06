@@ -59,27 +59,23 @@ Resources:
   #   Properties:
   #     Users:
   #       - !Ref AwsMcpHandsonUser
-  #     # 実際にはマネージドポリシーarn:aws:iam::aws:policy/AWSMCPSignInOAuthAccessPolicyを
-  #     # attach-user-policyコマンドでアタッチする
 
-  # ガードレールDenyポリシー（ハンズオン④で`aws iam put-user-policy`を使って手動アタッチするためコメントアウト）
-  # AwsMcpHandsonGuardrailPolicy:
-  #   Type: AWS::IAM::Policy
-  #   Properties:
-  #     PolicyName: DenyMCPDelete
-  #     Users:
-  #       - !Ref AwsMcpHandsonUser
-  #     PolicyDocument:
-  #       Version: '2012-10-17'
-  #       Statement:
-  #         - Effect: Deny
-  #           Action:
-  #             - s3:DeleteBucket
-  #             - s3:DeleteObject
-  #           Resource: '*'
-  #           Condition:
-  #             Bool:
-  #               aws:ViaAWSMCPService: 'true'
+  # ガードレールDenyポリシー（作成のみ行い、ハンズオン④で`aws iam attach-user-policy`を使って手動アタッチする）
+  AwsMcpHandsonGuardrailPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: DenyMCPDelete
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Action:
+              - s3:DeleteBucket
+              - s3:DeleteObject
+            Resource: '*'
+            Condition:
+              Bool:
+                aws:ViaAWSMCPService: 'true'
 
 Outputs:
   IamUserName:
@@ -93,3 +89,7 @@ Outputs:
   ConsoleSignInUrl:
     Description: AWSマネジメントコンソールのサインインURL（OAuth認証のブラウザサインインで使用）
     Value: !Sub 'https://${AWS::AccountId}.signin.aws.amazon.com/console'
+
+  GuardrailPolicyArn:
+    Description: ガードレールDenyポリシー（DenyMCPDelete）のARN。ハンズオン④で`aws iam attach-user-policy`のアタッチ対象として使用
+    Value: !Ref AwsMcpHandsonGuardrailPolicy

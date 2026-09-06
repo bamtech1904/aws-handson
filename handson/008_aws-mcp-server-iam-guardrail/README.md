@@ -23,13 +23,20 @@ curl -o aws-mcp-handson-cloudformation.yaml \
 
 - ハンズオン用IAMユーザー（`aws-mcp-handson-user`）とコンソールサインイン用パスワード
 - ハンズオン③（自然言語でのAWS環境操作）に必要な最小権限（`ec2:DescribeRegions` / S3のバケット一覧・作成・削除など）
+- ハンズオン④で使うガードレールDenyポリシー（`DenyMCPDelete`、マネージドポリシーとして作成のみ。IAMユーザーへのアタッチは手動）
 
 # ハンズオン中に手動で行うもの（あえてテンプレートに含めていません）
 
 - **ハンズオン①**: `AWSMCPSignInOAuthAccessPolicy`を`aws iam attach-user-policy`でアタッチ
-- **ハンズオン④**: `aws:ViaAWSMCPService`条件のDenyポリシーを`aws iam put-user-policy`でアタッチ
+- **ハンズオン④**: 作成済みの`DenyMCPDelete`ポリシー（Outputsの`GuardrailPolicyArn`）を`aws iam attach-user-policy`でアタッチ
 
-テンプレート内に該当箇所をコメントアウトで残しているので、内容の確認・コピー用に利用してください。
+```bash
+aws iam attach-user-policy \
+  --user-name <IamUserName> \
+  --policy-arn <GuardrailPolicyArn>
+```
+
+ハンズオン①の`AWSMCPSignInOAuthAccessPolicy`アタッチについては、テンプレート内にコメントアウトで該当箇所を残しているので、内容の確認用に利用してください。
 
 # セットアップ手順
 
@@ -39,5 +46,5 @@ curl -o aws-mcp-handson-cloudformation.yaml \
 # 後片付け
 
 - ハンズオンで作成したS3バケットを削除
-- ハンズオン④で追加したインラインポリシー（`DenyMCPDelete`など）を削除
-- 本スタックを削除（IAMユーザー・ベースポリシーを削除）
+- ハンズオン④でアタッチした`DenyMCPDelete`ポリシーをIAMユーザーからデタッチ（`aws iam detach-user-policy`。アタッチしたままだとスタック削除時にポリシー削除が失敗します）
+- 本スタックを削除（IAMユーザー・ベースポリシー・ガードレールポリシーを削除）
