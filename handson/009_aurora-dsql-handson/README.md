@@ -2,16 +2,21 @@
 
 # 概要
 
-本フォルダは`Amazon Aurora DSQLをTerraformで試してみた`のハンズオンで使用するTerraformコードです。
+本フォルダは`Amazon Aurora DSQL ハンズオン入門`で使用するTerraformコードです。
 
-Amazon Aurora DSQL の基本操作を「クラスター作成（Terraform） → psqlでスキーマ・データ操作（SQL） → 分散SQL特有の制約を体験」という流れで確かめます。Terraformが担うのはクラスターのプロビジョニングまでで、テーブルのスキーマ（DDL）はデプロイ後にSQLで自分の手で作ります。「インフラはIaC、スキーマはSQLマイグレーション」という一般的なRDBの管理スタイルをここで体感します。
+Amazon Aurora DSQL の以下操作についてハンズオンします。
+1. クラスター作成（Terraform）
+2. psqlでスキーマ・データ操作（SQL）
+3. DML/DDL分離とOCCを体験
+
+Terraformが担うのはクラスターのプロビジョニングまで。テーブルのスキーマ（DDL）はデプロイ後にSQLで手動作成します。「インフラはIaC、スキーマはSQLマイグレーション」という一般的なRDBの管理スタイルをここで体感します。
 
 # 対象読者・前提
 
-- Aurora DSQL・分散SQLは初めてでOK。PostgreSQLの基本的なSQL（CREATE TABLE / INSERT / SELECT / UPDATE / DELETE）が分かるとスムーズです
+- Aurora DSQLを触ったことがない方
+- PostgreSQLの基本的なSQL（CREATE TABLE / INSERT / SELECT / UPDATE / DELETE）が分かるとスムーズです（わからなくてもOK）
 - Terraform CLI（`>= 1.9.0`）がインストール済みであること
 - AWS CLI がインストール・認証済みであること（`aws dsql` サブコマンドを使うため、比較的新しいバージョンの AWS CLI v2 が必要。`aws dsql help` が通ることを事前に確認してください）
-- **`psql`（PostgreSQLクライアント）がローカルにインストールされていること**（例: `brew install postgresql`）。Aurora DSQL自体はPostgreSQL互換の分散SQLデータベースであり、標準のPostgreSQLクライアント・ドライバがそのまま使えます
 
 複数の AWS プロファイルを使い分けている場合は、`terraform.tfvars` に `profile = "<profile名>"` を指定してください（`terraform.tfvars.example` にコメントアウトで例があります）。`aws` コマンドを直接実行する箇所（Step2以降）では、各実行時に `--profile <profile名>` を追加してください。
 
@@ -33,12 +38,6 @@ done
 
 [GitHubリポジトリ](https://github.com/bamtech1904/aws-handson)の「Code」→「Download ZIP」から取得し、`handson/009_aurora-dsql-handson/`配下のファイルを使用してください。
 
-# このコードで作成されるもの
-
-- Amazon Aurora DSQLクラスター（単一リージョン、東京 ap-northeast-1 想定、削除保護は無効）のみ
-
-IAMユーザーは作成しません。各自ログイン済みのAWSアカウント（IAMユーザー／ロール）でそのまま操作してください。
-
 # 前提: 実行者のIAM権限
 
 本ハンズオンはIAMユーザーを新規作成しないため、`terraform apply`を実行するご自身のIAMユーザーまたはロールに、あらかじめ以下の権限が必要です。
@@ -50,14 +49,14 @@ IAMユーザーは作成しません。各自ログイン済みのAWSアカウ�
 
 ## Step 0. Aurora DSQLの基礎知識（3分）
 
-| 用語 | 意味 |
-|---|---|
-| クラスター | Aurora DSQLの管理単位。作成するとリージョン内で自動的に3AZへレプリケートされる |
-| DPU（Distributed Processing Unit） | 課金の基本単位。コンピュート・読み書き・CDCストリーミングなど全てのDB活動を正規化した単位。アクティビティがゼロなら消費もゼロ |
-| IAM認証トークン | パスワードの代わりに使う短命な認証トークン。`aws dsql generate-db-connect-admin-auth-token` で発行する |
-| DDL/DML分離 | 1つのトランザクション内でスキーマ変更（DDL、例: `CREATE TABLE`）とデータ操作（DML、例: `INSERT`）を混在できない制約。分散環境でスキーマ変更を安全に伝播させるための設計 |
-| 楽観的並行制御 | 更新時にロックを取らず、コミット時に競合を検出する方式。競合するとコミットが失敗し、クライアント側でリトライが必要になることがある |
-| ネットワークモデル | Aurora DSQLはそもそもVPCに配置する概念を持たないサーバーレスサービス。クラスターは作成時から公開エンドポイントを持ち、安全性はネットワーク隔離ではなくIAM認証（短命トークン）＋TLS必須で担保する |
+| 用語                               | 意味                                                                                                                                                                                             |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| クラスター                         | Aurora DSQLの管理単位。作成するとリージョン内で自動的に3AZへレプリケートされる                                                                                                                   |
+| DPU（Distributed Processing Unit） | 課金の基本単位。コンピュート・読み書き・CDCストリーミングなど全てのDB活動を正規化した単位。アクティビティがゼロなら消費もゼロ                                                                    |
+| IAM認証トークン                    | パスワードの代わりに使う短命な認証トークン。`aws dsql generate-db-connect-admin-auth-token` で発行する                                                                                           |
+| DDL/DML分離                        | 1つのトランザクション内でスキーマ変更（DDL、例: `CREATE TABLE`）とデータ操作（DML、例: `INSERT`）を混在できない制約。分散環境でスキーマ変更を安全に伝播させるための設計                          |
+| 楽観的並行制御                     | 更新時にロックを取らず、コミット時に競合を検出する方式。競合するとコミットが失敗し、クライアント側でリトライが必要になることがある                                                               |
+| ネットワークモデル                 | Aurora DSQLはそもそもVPCに配置する概念を持たないサーバーレスサービス。クラスターは作成時から公開エンドポイントを持ち、安全性はネットワーク隔離ではなくIAM認証（短命トークン）＋TLS必須で担保する |
 
 通常のAurora（PostgreSQL/MySQL互換）との違いはトランザクションの挙動に出ます。通常のAurora PostgreSQLはDDLも完全にトランザクショナルで、DMLと混在させてもROLLBACKすればCREATE TABLEごと取り消せます。Aurora DSQLは分散カタログを安全に伝播させるため、DDLとDMLの混在自体を禁止します（Step3で体験）。また競合検出も通常のAuroraが行レベルロックで先に防ぐ（悲観的並行制御）のに対し、Aurora DSQLはロックを取らずコミット時に競合を検出する楽観的並行制御を使います（発展編Step4で体験）。
 
