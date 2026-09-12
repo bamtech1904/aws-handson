@@ -13,7 +13,7 @@ Amazon Aurora DSQL の基本操作を「クラスター作成（Terraform） →
 - AWS CLI がインストール・認証済みであること（`aws dsql` サブコマンドを使うため、比較的新しいバージョンの AWS CLI v2 が必要。`aws dsql help` が通ることを事前に確認してください）
 - **`psql`（PostgreSQLクライアント）がローカルにインストールされていること**（例: `brew install postgresql`）。Aurora DSQL自体はPostgreSQL互換の分散SQLデータベースであり、標準のPostgreSQLクライアント・ドライバがそのまま使えます
 
-複数の AWS プロファイルを使い分けている場合は、環境変数 `AWS_PROFILE` を設定するか、`aws` コマンドの各実行時に `--profile <profile名>` を追加してください。Terraformの`aws`プロバイダーも同じ環境変数を参照します。
+複数の AWS プロファイルを使い分けている場合は、`terraform.tfvars` に `profile = "<profile名>"` を指定してください（`terraform.tfvars.example` にコメントアウトで例があります）。`aws` コマンドを直接実行する箇所（Step2以降）では、各実行時に `--profile <profile名>` を追加してください。
 
 # コードの入手
 
