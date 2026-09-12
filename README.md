@@ -12,4 +12,5 @@ AWSサービスのハンズオン動画と関連資料を管理するリポジ�
 | Athena   | Athena Federated QueryでCloudWatchログを解析してみた                           | [📁 資料](handson/004_athena-federated-query/)     |
 | Aurora   | RDSのBlue/Green Deploymentをやってみた                                         | [📁 資料](handson/005_aurora-blue-green-deploy/)   |
 | ECS      | ECS Workshop - cats and dogs                                                   | [📁 資料](handson/006_ecs-workshop-cats-and-dogs/) |
-| VPC      | VPC Peeringハンズオン                                                          | [📁 資料](handson/007_vpc-peering/)                |
+| VPC      | VPC Peeringハンズオン                                                          | [📁 資料](handson/007_vpc-peering-handson/)        |
+| Aurora   | Amazon Aurora DSQLをTerraformで試してみた                                      | [📁 資料](handson/009_aurora-dsql-handson/)        |
