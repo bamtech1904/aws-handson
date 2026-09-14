@@ -15,3 +15,4 @@ AWSサービスのハンズオン動画と関連資料を管理するリポジ�
 | VPC      | VPC Peeringハンズオン                                                             | [📁 資料](handson/007_vpc-peering-handson/)          |
 | IAM      | 【AWSハンズオン】AWS MCP ServerをClaude Codeにつないで、AIにAWS環境を触らせてみた | [📁 資料](handson/008_aws-mcp-server-iam-guardrail/) |
 | Aurora   | Amazon Aurora DSQLをTerraformで試してみた                                         | [📁 資料](handson/009_aurora-dsql-handson/)          |
+| DynamoDB | Amazon DynamoDBをTerraformで試してみた                                            | [📁 資料](handson/010_dynamodb-basics-handson/)      |

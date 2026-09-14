@@ -1,0 +1,7 @@
+# このファイルを terraform.tfvars にコピーして値を調整してください。
+# terraform.tfvars は .gitignore 対象なのでコミットされません。
+
+region = "ap-northeast-1"
+
+# 複数のAWSプロファイルを使い分けている場合はコメントを外して指定してください。
+# profile = "your-profile"
