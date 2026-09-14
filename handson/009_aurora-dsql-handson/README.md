@@ -6,7 +6,7 @@
 
 Amazon Aurora DSQL の以下操作についてハンズオンします。
 1. クラスター作成（Terraform）
-2. psqlでスキーマ・データ操作（SQL）
+2. CloudShellでpsql接続し、スキーマ・データ操作（SQL）
 3. DML/DDL分離とOCCを体験
 
 Terraformが担うのはクラスターのプロビジョニングまで。テーブルのスキーマ（DDL）はデプロイ後にSQLで手動作成します。「インフラはIaC、スキーマはSQLマイグレーション」という一般的なRDBの管理スタイルをここで体感します。
@@ -15,10 +15,12 @@ Terraformが担うのはクラスターのプロビジョニングまで。テ�
 
 - Aurora DSQLを触ったことがない方
 - PostgreSQLの基本的なSQL（CREATE TABLE / INSERT / SELECT / UPDATE / DELETE）が分かるとスムーズです（わからなくてもOK）
-- Terraform CLI（`>= 1.9.0`）がインストール済みであること
-- AWS CLI がインストール・認証済みであること（`aws dsql` サブコマンドを使うため、比較的新しいバージョンの AWS CLI v2 が必要。`aws dsql help` が通ることを事前に確認してください）
+- Terraform CLI（`>= 1.9.0`）がインストール済みであること（クラスターのデプロイに使用）
+- AWS CLI がインストール・認証済みであること（Terraformの認証情報として使用）
 
-複数の AWS プロファイルを使い分けている場合は、`terraform.tfvars` に `profile = "<profile名>"` を指定してください（`terraform.tfvars.example` にコメントアウトで例があります）。`aws` コマンドを直接実行する箇所（Step2以降）では、各実行時に `--profile <profile名>` を追加してください。
+Step2以降のDB操作（psql接続）は **AWS CloudShell** を使う想定です。ローカルに `psql` や新しいバージョンの AWS CLI をセットアップしていなくても、ブラウザだけで進められます（ローカル端末で試したい場合の手順も各ステップに残しています。その場合は `aws dsql` サブコマンドが使える比較的新しいバージョンの AWS CLI v2 が必要です）。
+
+複数の AWS プロファイルを使い分けている場合は、`terraform.tfvars` に `profile = "<profile名>"` を指定してください（`terraform.tfvars.example` にコメントアウトで例があります）。Terraform以外の操作は基本的にCloudShellで行うため、ローカルのプロファイル設定を気にする必要があるのはTerraformの実行時だけです。
 
 # コードの入手
 
@@ -81,6 +83,30 @@ ENDPOINT=$(terraform output -raw cluster_endpoint)
 
 ### Step 2. IAM認証トークンでpsql接続し、テーブルを作る
 
+**CloudShellで接続する（推奨）**
+
+1. [Aurora DSQLコンソール](https://console.aws.amazon.com/dsql) を開く
+2. 対象クラスターを選択し、**Connect with Query Editor** → **Connect with CloudShell** を選ぶ
+3. 接続ロールは **admin** を選択する
+4. **Launch in CloudShell** → 開いたダイアログで **Run** を選ぶ
+
+IAM認証トークンの発行からpsql接続までがこの操作だけで完結します。ローカルにAWS CLIやpsqlをインストールしていなくても、ブラウザだけで進められます。
+
+> **必要なIAM権限**: 上記のように `admin` ロールで接続する場合、実行するIAMユーザー/ロールには対象クラスターのARNにスコープした `dsql:DbConnectAdmin` が必要です（`terraform apply` を実行した権限があれば通常は含まれています）。
+>
+> ```json
+> {
+>   "Effect": "Allow",
+>   "Action": "dsql:DbConnectAdmin",
+>   "Resource": "arn:aws:dsql:ap-northeast-1:<account_id>:cluster/<cluster_id>"
+> }
+> ```
+>
+> カスタムDBロール（`dsql:DbConnect`）で接続する場合の権限設定は発展編のStep5を参照してください。
+
+<details>
+<summary>ローカル端末で接続する場合（クリックで展開）</summary>
+
 ```bash
 # IAM認証トークンを発行（有効期限1時間）。パスワードの代わりにこれを使う
 TOKEN=$(aws dsql generate-db-connect-admin-auth-token \
@@ -93,17 +119,9 @@ PGPASSWORD="$TOKEN" psql \
   "host=$ENDPOINT dbname=postgres user=admin sslmode=require"
 ```
 
-> **必要なIAM権限**: 上記のように `admin` ロールで接続する場合、実行するIAMユーザー/ロールには対象クラスターのARNにスコープした `dsql:DbConnectAdmin` が必要です（`terraform apply` を実行した権限があれば通常は含まれています）。
->
-> ```json
-> {
->   "Effect": "Allow",
->   "Action": "dsql:DbConnectAdmin",
->   "Resource": "arn:aws:dsql:ap-northeast-1:<account_id>:cluster/<cluster_id>"
-> }
-> ```
->
-> なお `aws dsql generate-db-connect-admin-auth-token` の実行自体はAWSへAPIを呼ばずローカルでSigV4署名を組み立てるだけの操作なので、このコマンド自体に紐づくIAM権限はありません。権限チェックが働くのは、発行したトークンで実際にクラスターへ接続を試みた瞬間です。カスタムDBロール（`dsql:DbConnect`）で接続する場合の権限設定は発展編のStep5を参照してください。
+`aws dsql generate-db-connect-admin-auth-token` の実行自体はAWSへAPIを呼ばずローカルでSigV4署名を組み立てるだけの操作なので、このコマンド自体に紐づくIAM権限はありません。権限チェックが働くのは、発行したトークンで実際にクラスターへ接続を試みた瞬間です。
+
+</details>
 
 接続できたら、テーブルを作成してCRUDを一巡します（psqlのプロンプト内で実行）。
 
@@ -131,7 +149,7 @@ DELETE FROM notes WHERE title = 'はじめてのメモ';
 
 ### Step 2b（別解）. Query Editorでpsqlなしに同じ操作を試す
 
-`psql` をインストールしなくても、AWSマネジメントコンソールの **Aurora DSQL Query Editor**（2025年11月リリース）から同じCRUD操作を試せます。IAM認証トークンの発行もローカルのクライアントセットアップも不要で、ブラウザだけで完結します。
+CloudShellと同じ **Connect with Query Editor** 画面から、SQLをそのままエディタに書いて実行する **Aurora DSQL Query Editor**（2025年11月リリース）という選択肢もあります。シェル操作すら不要で、ブラウザだけで完結します。
 
 **前提条件**
 
@@ -200,23 +218,23 @@ terraform destroy
 
 ### Step 4. 楽観的並行制御による競合を体験する
 
-ターミナルを2枚開き、それぞれで `$ENDPOINT` に対してpsql接続します（Step2と同じ手順でトークンを発行し直す）。
+CloudShellのタブを2枚開き、それぞれで **Connect with CloudShell** からpsql接続します（Step2と同じ操作をもう一度行う）。ローカル端末で試す場合は、ターミナルを2枚開いてそれぞれ `$ENDPOINT` に対してpsql接続してください（Step2と同じ手順でトークンを発行し直す）。
 
-セッションA・セッションB両方で同じテーブルを用意しておきます。
+まずタブAでテーブルを用意します。作成したテーブルはクラスター全体で共有されるため、タブBで改めて作成する必要はありません。
 
 ```sql
 CREATE TABLE counters (id int primary key, value int not null);
 INSERT INTO counters (id, value) VALUES (1, 0);
 ```
 
-セッションAで（まだCOMMITしない）:
+タブAで（まだCOMMITしない）:
 
 ```sql
 BEGIN;
 UPDATE counters SET value = value + 1 WHERE id = 1;
 ```
 
-セッションBで（同じ行を更新してCOMMITまで進める）:
+タブBで（同じ行を更新してCOMMITまで進める）:
 
 ```sql
 BEGIN;
@@ -224,7 +242,7 @@ UPDATE counters SET value = value + 1 WHERE id = 1;
 COMMIT;
 ```
 
-セッションAに戻って `COMMIT;` を実行する → 競合が検出されコミットが失敗することを確認します。ロックを先に取る通常のRDBMSとの違い（コミット時に初めて競合が判明する）がポイントです。失敗した場合はトランザクションを最初からやり直す（リトライ）のがAurora DSQLでの正しい対処法です。
+タブAに戻って `COMMIT;` を実行する → 競合が検出されコミットが失敗することを確認します。ロックを先に取る通常のRDBMSとの違い（コミット時に初めて競合が判明する）がポイントです。失敗した場合はトランザクションを最初からやり直す（リトライ）のがAurora DSQLでの正しい対処法です。
 
 ### Step 5. カスタムロールでの接続制御
 
