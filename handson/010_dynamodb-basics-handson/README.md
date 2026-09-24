@@ -204,7 +204,26 @@ terraform destroy
 
 ### Step 4. GSIを追加する
 
-「投稿者（`UserId`）ごとにメモを検索したい」という新しいアクセスパターンをGSIで実現します。`main.tf` の `UserId` 用 `attribute` ブロックと `global_secondary_index` ブロックを有効化します。
+「投稿者（`UserId`）ごとにメモを検索したい」という新しいアクセスパターンをGSIで実現します。ここでは**既存アイテムがあるテーブルにGSIを後から追加**し、既存データが自動でインデックスに取り込まれる（バックフィル）様子を体験します。
+
+まず、GSIを追加する前の状態でテーブルを作成します（`main.tf` はStep3で複合キーにした状態のまま、`UserId` 関連のブロックはコメントアウトのままにしておきます）。
+
+```bash
+terraform apply
+```
+
+続けてCloudShellで、`UserId` を持つアイテムを2件登録します（CloudShellのセッションが切れている場合は、Step1bの `export TABLE=...` を再実行してください）。
+
+```bash
+aws dynamodb put-item --table-name "$TABLE" \
+  --item '{"NoteId":{"S":"note-001"},"CreatedAt":{"S":"2026-09-10T09:00:00Z"},"UserId":{"S":"user-a"}}'
+aws dynamodb put-item --table-name "$TABLE" \
+  --item '{"NoteId":{"S":"note-002"},"CreatedAt":{"S":"2026-09-10T09:05:00Z"},"UserId":{"S":"user-b"}}'
+```
+
+**GSIに載るのは、インデックスのキー属性（ここでは `UserId`）を持つアイテムだけ**です（スパースインデックス）。`UserId` を持たないアイテムは、GSIを作ってもインデックス側には現れず、GSIへの `query` では返りません。今回は `UserId` 付きのアイテムをGSI作成の前に登録しておくことで、既存アイテムがバックフィルされる様子を確認できます（GSI作成後に登録した `UserId` 付きアイテムも、自動的にインデックスへ反映されます）。
+
+次に、`main.tf` の `UserId` 用 `attribute` ブロックと `global_secondary_index` ブロックを有効化します。
 
 ```hcl
   attribute {
@@ -221,18 +240,31 @@ terraform destroy
 
 （`billing_mode = PAY_PER_REQUEST` のままなら `read_capacity`/`write_capacity` は不要です。Step5でプロビジョンドに切り替える場合はGSI側にも容量指定が必要になります）
 
-`terraform plan` で差分を確認します。Step3と違い、GSI追加は**置換を伴わない**インプレース更新である点に注目してください（バックフィルに時間がかかることはあります）。
+差分を確認してから適用します。Step3と違い、GSI追加は**置換を伴わない**インプレース更新である点に注目してください。
 
 ```bash
-aws dynamodb put-item --table-name "$TABLE" \
-  --item '{"NoteId":{"S":"note-002"},"CreatedAt":{"S":"2026-09-06T10:00:00Z"},"UserId":{"S":"user-a"},"Title":{"S":"3件目"}}'
+terraform plan
+terraform apply
+```
 
+GSIは作成直後すぐには使えません。既存アイテムのバックフィルが終わり、`IndexStatus` が `CREATING` から `ACTIVE` になるまでは、そのインデックスに対して `query` を実行できません（バックフィルには多少時間がかかることがあります）。CloudShellで状態を確認します。
+
+```bash
+aws dynamodb describe-table --table-name "$TABLE" \
+  --query "Table.GlobalSecondaryIndexes[].{Name:IndexName,Status:IndexStatus}"
+```
+
+`Status` が `ACTIVE` になったら、`UserIdIndex` を指定して `query` を実行します。
+
+```bash
 aws dynamodb query \
   --table-name "$TABLE" \
   --index-name UserIdIndex \
   --key-condition-expression "UserId = :u" \
   --expression-attribute-values '{":u": {"S": "user-a"}}'
 ```
+
+`user-a` の1件（`note-001`）だけが返り、`user-b` の `note-002` は含まれません。GSIを使うと、テーブルのキー（`NoteId`）以外の属性でもScanなしで検索できます。なお、GSIへの読み取りは結果整合性のみで、`--consistent-read`（強い整合性）は指定できません（指定するとエラーになります）。
 
 ### Step 5. キャパシティモードと料金の勘所
 
